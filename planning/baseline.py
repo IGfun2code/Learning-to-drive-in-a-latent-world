@@ -1,6 +1,6 @@
 # baseline.py
 from typing import Callable, Dict, Any
-import gym
+import gymnasium as gym
 import torch
 import torch.nn as nn
 from stable_baselines3 import PPO
