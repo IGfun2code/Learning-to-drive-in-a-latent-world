@@ -1,0 +1,4 @@
+muzero/__pycache__
+*.mp4
+test_env.py
+.vscode

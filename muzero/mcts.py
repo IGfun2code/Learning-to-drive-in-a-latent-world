@@ -1,7 +1,6 @@
-from game import ActionHistory
-from config import MuZeroConfig
-from typing import List
-
+from muzero.config import MuZeroConfig
+from typing import List, Optional
+import collections
 MAXIMUM_FLOAT_VALUE = float('inf')
 
 KnownBounds = collections.namedtuple('KnownBounds', ['min', 'max'])
@@ -46,8 +45,10 @@ class Node(object):
 # To decide on an action, we run N simulations, always starting at the root of
 # the search tree and traversing the tree according to the UCB formula until we
 # reach a leaf node.
-def run_mcts(config: MuZeroConfig, root: Node, action_history: ActionHistory,
-						 network: Network):
+
+# action history in quotes to avoid circular import error
+def run_mcts(config: MuZeroConfig, root: Node, action_history: "ActionHistory",
+						 network: "Network"):
 	min_max_stats = MinMaxStats(config.known_bounds)
 
 	for _ in range(config.num_simulations):
