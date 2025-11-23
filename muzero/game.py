@@ -1,6 +1,9 @@
 from typing import List
 from config import MuZeroConfig
 from mcts import Node
+import gymnasium as gym
+import numpy as np
+import cv2
 
 class Player(object):
 	#dummy class since it is used in the MuZero MCTS algorithm
@@ -45,6 +48,38 @@ class ActionHistory(object):
 
 	def to_play(self) -> Player:
 		return Player()
+	
+class DrivingEnvironment:
+    """
+    Wrapper around CarRacing-v3 (Discrete Mode).
+    Handles:
+    - reset()
+    - step(action_index)
+    - observation preprocessing
+    """
+
+    def __init__(self, obs_shape=(64, 64)):
+        # Use discrete action mode
+        self.env = gym.make("CarRacing-v3", render_mode="rgb_array", lap_complete_percent=0.95, domain_randomize=False, continuous=False)
+        self.obs_shape = obs_shape
+
+    def reset(self):
+        obs, info = self.env.reset()
+        return self._preprocess(obs)
+
+    def step(self, action_index):
+        obs, reward, terminated, truncated, info = self.env.step(action_index)
+        obs = self._preprocess(obs)
+
+        done = terminated or truncated
+        return obs, reward, done, info
+
+    def _preprocess(self, obs):
+        # obs shape: (96, 96, 3)
+        obs = cv2.resize(obs, self.obs_shape, interpolation=cv2.INTER_AREA)
+        obs = obs.astype(np.float32) / 255.0
+        return obs
+
 
 class Game(object):
 	"""A single episode of interaction with the environment."""

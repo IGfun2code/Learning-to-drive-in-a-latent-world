@@ -3,7 +3,11 @@ class MuZeroConfig(object):
 	def __init__(self):
 		
 		### Need to tweak these parameters
-		self.action_space_size = 15 #number of actions we want to control (discrete steering and throttle)
+		# self.action_space_size = 15 #number of actions we want to control (discrete steering and throttle)
+		
+		# nothing, right, left, gas, break for discrete carracing-v3
+		self.action_space_size = 5
+
 
 		# will yeild about 30sec per episode if you step through the env at 10Hz (Probably increase it after initial training)
 		self.max_moves = 300 #max environment steps per episode
