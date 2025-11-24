@@ -79,10 +79,17 @@ def expand_node(node: Node, to_play: Player, actions: List[Action], network_outp
   node.to_play = to_play
   node.hidden_state = network_output.hidden_state
   node.reward = float(network_output.reward)
-  policy = {a: math.exp(network_output.policy_logits[a]) for a in actions}
+
+  logits = network_output.policy_logits
+  policy = {}
+  for action in actions:
+    #get the specific 
+    logit = float(logits[action.index])
+    policy[action] = math.exp(logit)
+    
   policy_sum = sum(policy.values())
   for action, p in policy.items():
-    node.children[action] = Node(p / policy_sum)
+    node.children[action] = Node(p / (policy_sum + 1e-8))
 
 # At the end of a simulation, we propagate the evaluation all the way up the
 # tree to the root.
