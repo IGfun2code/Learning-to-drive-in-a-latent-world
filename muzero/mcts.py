@@ -86,7 +86,7 @@ def expand_node(node: Node, to_play: Player, actions: List[Action], network_outp
     #get the specific 
     logit = float(logits[action.index])
     policy[action] = math.exp(logit)
-    
+
   policy_sum = sum(policy.values())
   for action, p in policy.items():
     node.children[action] = Node(p / (policy_sum + 1e-8))
@@ -119,7 +119,7 @@ def softmax_sample(distribution, temperature: float):
   #   temperature:  smaller temp ==> Greedy, larger temp ==> more random
 
   #make sure the distribution is not zero
-  if len(distribution) != 0:
+  if len(distribution) == 0:
     raise ValueError("softmax_sample called with empty distribution")
   
   #Must determine the sampling based on the temperature
