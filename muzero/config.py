@@ -24,7 +24,7 @@ class MuZeroConfig(object):
 
     # If we already have some information about which values occur in the
     # environment, we can use them to initialize the rescaling.
-    self.known_bounds = None #Can change this if 
+    self.known_bounds = None #Can change this if needed
 
     ### Training
     self.training_steps = 50000
