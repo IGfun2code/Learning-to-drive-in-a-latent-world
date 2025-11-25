@@ -1,4 +1,10 @@
+.gitignore
 muzero/__pycache__
 *.mp4
 test_env.py
+test_network.py
+test_replaybuffer.py
+test_batch.py
 .vscode
+*.pt
+__pycache__

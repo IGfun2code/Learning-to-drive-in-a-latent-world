@@ -21,6 +21,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from dataclasses import dataclass
+import numpy as np
 
 from .config import MuZeroConfig
 
@@ -202,7 +203,7 @@ class MuZeroNetwork(nn.Module):
             return x.to(self.device)
 
         # Assume numpy array (H,W,C) in [0,1] or [0,255]
-        import numpy as np
+        
         if isinstance(obs, np.ndarray):
             if obs.ndim != 3 or obs.shape[2] != 3:
                 raise ValueError(f"Expected obs as (H,W,3), got {obs.shape}")
@@ -247,7 +248,6 @@ class MuZeroNetwork(nn.Module):
 
         # At root, MuZero usually sets reward = 0 (no previous action)
         reward = torch.zeros_like(value)
-        print(f'policy before sq: {policy_logits.shape}')
         return NetworkOutput(
             value=value.squeeze(0),                    # scalar
             reward=reward.squeeze(0),                  # scalar
@@ -298,4 +298,4 @@ class MuZeroNetwork(nn.Module):
 
 
 # # Optional alias, if other files refer to `Network` type
-# Network = MuZeroNetwork
+Network = MuZeroNetwork

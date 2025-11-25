@@ -126,7 +126,7 @@ class Game(object):
 
         #store the observations at each step
         self.observations = [] #raw observations (occupancy grids) from the env
-        ob_init = self.environment.reset()
+        ob_init, _ = self.environment.reset()
         self.observations.append(ob_init) #store the first observation in the env.
         #boolean variable to determine if the episode is done
         self.done = False
