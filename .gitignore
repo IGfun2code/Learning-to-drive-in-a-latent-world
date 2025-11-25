@@ -8,3 +8,4 @@ test_batch.py
 .vscode
 *.pt
 __pycache__
+videos

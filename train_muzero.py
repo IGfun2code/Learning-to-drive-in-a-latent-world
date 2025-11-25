@@ -9,26 +9,26 @@ import torch.optim as optim
 from muzero.replay_buffer import ReplayBuffer
 from muzero.batch import make_training_batch
 
-def play_game(config, network, env):
-	game = Game(config, env)
+def play_game(config, network, env, record_video=False, video_path=None):
+    game = Game(config, env, record_video, video_path)
 
-	while not game.terminal():
-		root = Node(0)
-		current_obs = game.make_image(-1)          # occupancy grid
-		network_output = network.initial_inference(current_obs)
-		expand_node(root, game.to_play(), game.legal_actions(), network_output)
-		add_exploration_noise(config, root)
+    while not game.terminal():
+        root = Node(0)
+        current_obs = game.make_image(-1)          # occupancy grid
+        network_output = network.initial_inference(current_obs)
+        expand_node(root, game.to_play(), game.legal_actions(), network_output)
+        add_exploration_noise(config, root)
 
-		# MCTS
-		run_mcts(config, root, game.action_history(), network)
+        # MCTS
+        run_mcts(config, root, game.action_history(), network)
 
-		# Choose action
-		action = select_action(config, len(game.history), root, network)
+        # Choose action
+        action = select_action(config, len(game.history), root, network)
 
-		game.apply(action)
-		game.store_search_statistics(root)
+        game.apply(action)
+        game.store_search_statistics(root)
 
-	return game
+    return game
 
 
 def muzero_update(config, network, replay_buffer, optimizer, device):
@@ -136,8 +136,8 @@ def main():
     config = MuZeroConfig()
     #debug
     config.num_simulations = 5
-    config.training_steps = 50
-    config.max_moves = 50
+    config.training_steps = 51
+    config.max_moves = 500
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
@@ -165,7 +165,10 @@ def main():
         step = network.training_steps()
 
         # 1. Self-play: generate one new episode
-        game = play_game(config, network, env)
+        if step % 25 == 0:
+            game = play_game(config, network, env, record_video=True, video_path=f'videos/{int(step)}.mp4')
+        else:
+            game = play_game(config, network, env)
         replay_buffer.add_episode(game)
 
         # 2. Training update (one gradient step)
@@ -198,6 +201,7 @@ def main():
             print(f"Saved checkpoint to {ckpt_path}")
 
     print("Training complete.")
+    env.close()
 
 
 if __name__ == "__main__":

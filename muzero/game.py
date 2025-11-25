@@ -58,31 +58,31 @@ class DrivingEnvironment:
     - observation preprocessing
     """
 
-    def __init__(self, obs_shape=(64, 64), record_video=False, video_path="debug_run.mp4"):
+    def __init__(self, obs_shape=(64, 64)):
         # Use discrete action mode
         self.env = gym.make("CarRacing-v3", render_mode="rgb_array", lap_complete_percent=0.95, domain_randomize=False, continuous=False)
         self.obs_shape = obs_shape
         
         # video params
-        self.record_video = record_video
-        self.video_path = video_path
-        self.video_writer = None
+        # self.record_video = record_video
+        # self.video_path = video_path
+        # self.video_writer = None
         self.frame_size = (600, 400)  # CarRacing's native resolution
 
     def reset(self):
         obs, info = self.env.reset()
 
         # init video writer if recording
-        if self.record_video:
-            if self.video_writer is not None:  # close previous one
-                self.video_writer.release()
+        # if self.record_video:
+        #     if self.video_writer is not None:  # close previous one
+        #         self.video_writer.release()
 
-            self.video_writer = cv2.VideoWriter(
-                self.video_path,
-                cv2.VideoWriter_fourcc(*"mp4v"),
-                30,                      # FPS
-                self.frame_size        
-            )
+            # self.video_writer = cv2.VideoWriter(
+            #     self.video_path,
+            #     cv2.VideoWriter_fourcc(*"mp4v"),
+            #     30,                      # FPS
+            #     self.frame_size        
+            # )
         return self._preprocess(obs), info
 
     def step(self, action_index):
@@ -90,21 +90,34 @@ class DrivingEnvironment:
         obs = self._preprocess(obs)
 
         # capture frame if recording
-        if self.record_video:
-            frame = self.env.render() # render returns 400, 600, 3
-            frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)  # convert to bgr for opencv
-            self.video_writer.write(frame_bgr)
+        # if self.record_video:
+        #     frame = self.env.render() # render returns 400, 600, 3
+        #     frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)  # convert to bgr for opencv
+        #     self.video_writer.write(frame_bgr)
 
         done = terminated or truncated
         return obs, reward, done, info
 
     def close(self):
-        """Close env + video writer (good practice)."""
-        if self.record_video and self.video_writer is not None:
-            self.video_writer.release()
-            self.video_writer = None
-            print(f'video saved to {self.video_path}')
+        """Close env"""
+        # if self.record_video and self.video_writer is not None:
+        #     self.video_writer.release()
+        #     self.video_writer = None
+        #     print(f'video saved to {self.video_path}')
         self.env.close()
+    
+    # for video saving
+    def render(self):
+        """returns rendered current frame of env"""
+        frame = self.env.render() # render returns 400, 600, 3
+        frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)  # convert to bgr for opencv
+        return frame_bgr
+    # for video saving
+    def get_frame_size(self):
+        # swap to return expected for opencv h,w,c
+        size = self.env.render().shape
+        return (size[1], size[0])
+
 
     def _preprocess(self, obs):
         # obs shape: (96, 96, 3)
@@ -116,7 +129,7 @@ class DrivingEnvironment:
 class Game(object):
     """A single episode of interaction with the environment."""
 
-    def __init__(self, config: MuZeroConfig, env):
+    def __init__(self, config: MuZeroConfig, env, record_video=False, video_path=None):
         self.config = config
         self.environment = env  # Occuworld + Carla Environment
         self.history = [] #list of actions so far
@@ -134,15 +147,36 @@ class Game(object):
         self.action_space_size = self.config.action_space_size
         self.discount = self.config.discount
         self.max_moves = self.config.max_moves
+        
+        # recording params
+        self.record_video = record_video
+        if self.record_video:
+            #TODO check if video folder exists
+            self.frame_size = self.environment.get_frame_size()
+            self.video_path = video_path
+            self.video_writer = cv2.VideoWriter(
+                self.video_path,
+                cv2.VideoWriter_fourcc(*"mp4v"),
+                30,                      # FPS
+                self.frame_size        
+            )
+            
+        
 
     def terminal(self) -> bool:
-        #check if the boolean variable is True
-        if self.done == True:
-            return True
-        #secondary check to make sure the steps in the episode do not exceed your max moves
-        if len(self.history) >= self.max_moves:
-            return True
-        pass
+        # #check if the boolean variable is True
+        # if self.done == True:
+        #     return True
+        # #secondary check to make sure the steps in the episode do not exceed your max moves
+        # if len(self.history) >= self.max_moves:
+        #     return True
+        
+        # need to check if we reached terminal in env or if we've exceeded max moves
+        is_terminal = self.done or len(self.history) >= self.max_moves
+        if is_terminal and self.record_video:
+            self.video_writer.release()
+            print(f'video saved to {self.video_path}')
+        return is_terminal
 
     def legal_actions(self):
         # return a list of legal actions
@@ -179,8 +213,14 @@ class Game(object):
     def make_image(self, state_index: int):
         # Just a way to get the observation in the episode
         if state_index == -1:
-            return self.observations[-1]
-        return self.observations[state_index]
+            obs = self.observations[-1]
+        else: 
+            obs = self.observations[state_index]
+        if self.record_video:
+            frame = self.environment.render()
+            self.video_writer.write(frame)
+        return obs
+            
 
     def make_target(self, state_index: int, num_unroll_steps: int, td_steps: int):
         # The value target is the discounted root value of the search tree N steps
