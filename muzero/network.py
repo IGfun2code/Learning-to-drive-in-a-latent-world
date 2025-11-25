@@ -1,20 +1,20 @@
-class Network(object):
+# class Network(object):
 
-	def initial_inference(self, image) -> NetworkOutput:
-		# representation + prediction function
-		return NetworkOutput(0, 0, {}, [])
+# 	def initial_inference(self, image) -> NetworkOutput:
+# 		# representation + prediction function
+# 		return NetworkOutput(0, 0, {}, [])
 
-	def recurrent_inference(self, hidden_state, action) -> NetworkOutput:
-		# dynamics + prediction function
-		return NetworkOutput(0, 0, {}, [])
-	
-	def get_weights(self):
-		# Returns the weights of this network.
-		return []
+# 	def recurrent_inference(self, hidden_state, action) -> NetworkOutput:
+# 		# dynamics + prediction function
+# 		return NetworkOutput(0, 0, {}, [])
+    
+# 	def get_weights(self):
+# 		# Returns the weights of this network.
+# 		return []
 
-	def training_steps(self) -> int:
-		# How many steps / batches the network has been trained for.
-		return 0
+# 	def training_steps(self) -> int:
+# 		# How many steps / batches the network has been trained for.
+# 		return 0
 
 
 import torch
@@ -48,13 +48,13 @@ class RepresentationNetwork(nn.Module):
         # Expect obs as (B, C, H, W), with C=3, H=W=64 (we'll enforce this later)
         self.conv = nn.Sequential(
             nn.Conv2d(3, 32, kernel_size=5, stride=2, padding=2),  # 64 -> 32
-            nn.ReLU(inplace=True),
+            nn.ReLU(),
             nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1), # 32 -> 16
-            nn.ReLU(inplace=True),
+            nn.ReLU(),
             nn.Conv2d(64, 64, kernel_size=3, stride=2, padding=1), # 16 -> 8
-            nn.ReLU(inplace=True),
+            nn.ReLU(),
             nn.Conv2d(64, 64, kernel_size=3, stride=2, padding=1), # 8 -> 4
-            nn.ReLU(inplace=True),
+            nn.ReLU(),
         )
         self.fc = nn.Linear(64 * 4 * 4, latent_dim)
 
@@ -88,14 +88,14 @@ class DynamicsNetwork(nn.Module):
         # MLP for next state
         self.state_mlp = nn.Sequential(
             nn.Linear(latent_dim + 16, hidden_dim),
-            nn.ReLU(inplace=True),
+            nn.ReLU(),
             nn.Linear(hidden_dim, latent_dim),
         )
 
         # MLP for reward scalar
         self.reward_head = nn.Sequential(
             nn.Linear(latent_dim + 16, hidden_dim),
-            nn.ReLU(inplace=True),
+            nn.ReLU(),
             nn.Linear(hidden_dim, 1),
         )
 
@@ -130,7 +130,7 @@ class PredictionNetwork(nn.Module):
 
         self.mlp = nn.Sequential(
             nn.Linear(latent_dim, hidden_dim),
-            nn.ReLU(inplace=True),
+            nn.ReLU(),
         )
 
         self.value_head = nn.Linear(hidden_dim, 1)
@@ -164,7 +164,7 @@ class MuZeroNetwork(nn.Module):
         self.config = config
         self.latent_dim = 128
         self.action_space_size = config.action_space_size
-        self.device = device if device is not None else torch.device("cpu")
+        self.device = device if device is not None else 'cuda' if torch.cuda.is_available() else 'cpu'
 
         self.representation_network = RepresentationNetwork(latent_dim=self.latent_dim)
         self.dynamics_network = DynamicsNetwork(
@@ -219,6 +219,7 @@ class MuZeroNetwork(nn.Module):
         action: either Action object with .index or int or tensor
         returns LongTensor of shape (B,)
         """
+        #TODO: can't take np array input, might have to adjust
         if isinstance(action, torch.Tensor):
             return action.long().to(self.device)
 
@@ -246,7 +247,7 @@ class MuZeroNetwork(nn.Module):
 
         # At root, MuZero usually sets reward = 0 (no previous action)
         reward = torch.zeros_like(value)
-
+        print(f'policy before sq: {policy_logits.shape}')
         return NetworkOutput(
             value=value.squeeze(0),                    # scalar
             reward=reward.squeeze(0),                  # scalar
