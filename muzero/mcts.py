@@ -149,6 +149,11 @@ def select_action(config: MuZeroConfig, num_moves: int, node: Node,
     _, action = softmax_sample(visit_counts, t)
     return action
 
+def select_action_eval(root):
+    """use greedy strategy when selecting action during eval"""
+    visit_counts = [(child.visit_count, action) for action, child in root.children.items()]
+    _, best_action = max(visit_counts, key=lambda x: x[0])
+    return best_action
 
 # Core Monte Carlo Tree Search algorithm.
 # To decide on an action, we run N simulations, always starting at the root of

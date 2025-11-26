@@ -9,3 +9,4 @@ test_batch.py
 *.pt
 __pycache__
 videos
+*.jpg

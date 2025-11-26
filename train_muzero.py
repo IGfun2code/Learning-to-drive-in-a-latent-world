@@ -1,15 +1,20 @@
 from muzero.config import MuZeroConfig
 from muzero.network import MuZeroNetwork
-from muzero.mcts import Node, run_mcts, expand_node, add_exploration_noise, select_action
+from muzero.mcts import Node, run_mcts, expand_node, add_exploration_noise, select_action, select_action_eval
 from muzero.game import Game, DrivingEnvironment
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
+import numpy as np
+import matplotlib.pyplot as plt
 
 from muzero.replay_buffer import ReplayBuffer
 from muzero.batch import make_training_batch
 
 def play_game(config, network, env, record_video=False, video_path=None):
+    """
+    produces a single trajectory, storing game state information in returned Game Object
+    """
     game = Game(config, env, record_video, video_path)
 
     while not game.terminal():
@@ -29,6 +34,38 @@ def play_game(config, network, env, record_video=False, video_path=None):
         game.store_search_statistics(root)
 
     return game
+
+def evaluate_policy(config, network, env, num_episodes=3, record_video=False, video_path=None):
+    """
+    similar to play_game, but selects actions greedily and returns eval ave return
+    """
+    returns = []
+
+    original_noise = config.root_exploration_fraction
+    config.root_exploration_fraction = 0.0
+
+    for _ in range(num_episodes):
+        game = Game(config, env, record_video, video_path)
+        while not game.terminal():
+            root = Node(0.0)
+            obs = game.make_image(-1)
+            out = network.initial_inference(obs)
+            expand_node(root, game.to_play(), game.legal_actions(), out)
+
+            # NO exploration noise
+            # run fewer sims or same number
+            run_mcts(config, root, game.action_history(), network)
+
+            action = select_action_eval(root)   # greedy selection
+            game.apply(action)
+
+        episode_return = sum(game.rewards)
+        returns.append(episode_return)
+
+    # reset to original value
+    config.root_exploration_fraction = original_noise
+    return np.mean(returns)
+
 
 
 def muzero_update(config, network, replay_buffer, optimizer, device):
@@ -130,14 +167,31 @@ def muzero_update(config, network, replay_buffer, optimizer, device):
         "reward_loss": float(reward_loss.item()),
         "policy_loss": float(policy_loss.item()),
     }
+    
+def plot_results(results):
+    """plot saved results"""
+    #todo move to separate logging class
+    for name, data in results.items():
+        arr = np.array(data)
+        steps = arr[:, 0]
+        eval_returns = arr[:, 1]
+
+        plt.figure(figsize=(8, 5))
+        plt.plot(steps, eval_returns)
+        plt.xlabel("Training Step")
+        plt.ylabel(name)
+        plt.title(f"MuZero {name}")
+        plt.grid(True)
+        plt.savefig(f"{name}.jpg", dpi=500)
+        plt.close()
 
 
 def main():
     config = MuZeroConfig()
     #debug
-    config.num_simulations = 5
-    config.training_steps = 51
-    config.max_moves = 500
+    # config.num_simulations = 5
+    # config.training_steps = 200
+    # config.max_moves = 50
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
@@ -158,6 +212,12 @@ def main():
 
     # Replay buffer
     replay_buffer = ReplayBuffer(config)
+    
+    # logging TODO make separate class
+    logging = {
+        "loss": [],
+        "eval ave return": []
+    }
 
     # Training loop:
     #  We use network.training_steps() as our global counter.
@@ -165,10 +225,7 @@ def main():
         step = network.training_steps()
 
         # 1. Self-play: generate one new episode
-        if step % 25 == 0:
-            game = play_game(config, network, env, record_video=True, video_path=f'videos/{int(step)}.mp4')
-        else:
-            game = play_game(config, network, env)
+        game = play_game(config, network, env)
         replay_buffer.add_episode(game)
 
         # 2. Training update (one gradient step)
@@ -177,6 +234,8 @@ def main():
         # 3. LR schedule step
         scheduler.step()
 
+        
+        
         # 4. Logging
         if stats is not None and step % 1 == 0:
             print(
@@ -186,8 +245,19 @@ def main():
                 f"reward={stats['reward_loss']:.4f} "
                 f"policy={stats['policy_loss']:.4f}"
             )
+            logging["loss"].append((step, stats["total_loss"]))
+        # 5. run periodic evals
+        if step % config.eval_freq == 0:
+            if step % config.video_freq == 0:
+                eval_return = evaluate_policy(config, network, env, record_video=True, video_path=f"videos/step_{int(step)}.mp4")
+            else:
+                eval_return = evaluate_policy(config, network, env)
+                 
+           
+            logging["eval ave return"].append((step, eval_return))
+            print(f"eval ave return={eval_return:.4f}")
 
-        # 5. Checkpointing
+        # 6. Checkpointing
         if step % config.checkpoint_interval == 0:
             ckpt_path = f"muzero_checkpoint_step_{step}.pt"
             torch.save(
@@ -202,6 +272,7 @@ def main():
 
     print("Training complete.")
     env.close()
+    plot_results(logging)
 
 
 if __name__ == "__main__":
