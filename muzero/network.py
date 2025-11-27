@@ -47,6 +47,8 @@ class RepresentationNetwork(nn.Module):
     def __init__(self, latent_dim: int = 128):
         super().__init__()
         # Expect obs as (B, C, H, W), with C=3, H=W=64 (we'll enforce this later)
+        #TODO change to simple mlp for cartpole
+        # todo might have to change the obs to tensor method
         self.conv = nn.Sequential(
             nn.Conv2d(3, 32, kernel_size=5, stride=2, padding=2),  # 64 -> 32
             nn.ReLU(),
@@ -58,16 +60,26 @@ class RepresentationNetwork(nn.Module):
             nn.ReLU(),
         )
         self.fc = nn.Linear(64 * 4 * 4, latent_dim)
+        
+        # for 4 dim input (cartpole)
+        self.net = nn.Sequential(
+            nn.Linear(4, 64),
+            nn.ReLU(),
+            nn.Linear(64, latent_dim)
+        )
 
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
         """
         obs: (B, 3, 64, 64) float32 in [0,1]
         returns: latent state s_0: (B, latent_dim)
         """
-        x = self.conv(obs)                       # (B, 64, 4, 4)
-        x = x.view(x.size(0), -1)                # (B, 64*4*4)
-        s = self.fc(x)                           # (B, latent_dim)
-        return s
+        # x = self.conv(obs)                       # (B, 64, 4, 4)
+        # x = x.view(x.size(0), -1)                # (B, 64*4*4)
+        # s = self.fc(x)                           # (B, latent_dim)
+        # return s
+        
+        # testing cartpole
+        return self.net(obs)
 
 
 # === Dynamics network g: (state, action) -> (next_state, reward) ===
@@ -84,18 +96,20 @@ class DynamicsNetwork(nn.Module):
         self.action_space_size = action_space_size
 
         # Embed action index into a small vector
-        self.action_embedding = nn.Embedding(action_space_size, 16)
+        # change to smaller embedding size for cart pole
+        action_embedding_size = 4
+        self.action_embedding = nn.Embedding(action_space_size, action_embedding_size)
 
         # MLP for next state
         self.state_mlp = nn.Sequential(
-            nn.Linear(latent_dim + 16, hidden_dim),
+            nn.Linear(latent_dim + action_embedding_size, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, latent_dim),
         )
 
         # MLP for reward scalar
         self.reward_head = nn.Sequential(
-            nn.Linear(latent_dim + 16, hidden_dim),
+            nn.Linear(latent_dim + action_embedding_size, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, 1),
         )
@@ -163,7 +177,7 @@ class MuZeroNetwork(nn.Module):
     def __init__(self, config: MuZeroConfig, device: torch.device | None = None):
         super().__init__()
         self.config = config
-        self.latent_dim = 128
+        self.latent_dim = 32
         self.action_space_size = config.action_space_size
         self.device = device if device is not None else 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -171,14 +185,14 @@ class MuZeroNetwork(nn.Module):
         self.dynamics_network = DynamicsNetwork(
             latent_dim=self.latent_dim,
             action_space_size=self.action_space_size,
-            hidden_dim=128,
+            hidden_dim=64,
         )
         self.prediction_network = PredictionNetwork(
             latent_dim=self.latent_dim,
             action_space_size=self.action_space_size,
-            hidden_dim=128,
+            hidden_dim=64,
         )
-
+        #changing latent to 32, hidden to 64 (instead of 128) to test cartpole
         self.to(self.device)
 
         # Optional: track training steps
@@ -205,6 +219,8 @@ class MuZeroNetwork(nn.Module):
         # Assume numpy array (H,W,C) in [0,1] or [0,255]
         
         if isinstance(obs, np.ndarray):
+            return torch.from_numpy(obs).float()  # working with carpole for now
+        
             if obs.ndim != 3 or obs.shape[2] != 3:
                 raise ValueError(f"Expected obs as (H,W,3), got {obs.shape}")
             x = torch.from_numpy(obs).float()          # (H,W,3)

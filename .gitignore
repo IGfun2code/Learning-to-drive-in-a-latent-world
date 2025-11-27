@@ -10,3 +10,5 @@ test_batch.py
 __pycache__
 videos
 *.jpg
+run*
+logs

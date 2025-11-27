@@ -31,7 +31,7 @@ class MuZeroConfig(object):
         self.known_bounds = None #Can change this if 
 
         ### Training
-        self.training_steps = 50000
+        self.training_steps = 5001
         self.checkpoint_interval = int(1e3)
         self.window_size = int(1e5) # replay buffer size (max number of experience you store)
         self.batch_size = 32 #batch size for trainig
@@ -46,8 +46,8 @@ class MuZeroConfig(object):
         self.lr_decay_steps = 2000
   
         # extra stuff
-        self.video_freq = 500  # how often to save video of eval run
-        self.eval_freq = 250  # how often to eval
+        self.video_freq = 200  # how often to save video of eval run
+        self.eval_freq = 50  # how often to eval
         # self.video_folder = "videos"
         # self.plots_folder
   
@@ -55,4 +55,23 @@ class MuZeroConfig(object):
     
     def visit_softmax_temperature(self, num_moves, training_steps):
         #Determines the exploration rate and exploitation based on what training step we are on
-        return 1.0 if training_steps < 10000 else 0.25
+        # return 1.0 if training_steps < 10000 else 0.25
+        # higher temperature higher exploration
+        
+        # trying higher initial exploration
+        if training_steps < 100:
+            return 3
+        elif training_steps < 125:
+            return 2      
+        elif training_steps < 150:
+            return 1      
+        elif training_steps < 175:
+            return 0.5      
+        elif training_steps < 200:
+            return 0.250      
+        elif training_steps < 225:
+            return 0.125      
+        elif training_steps < 250:
+            return 0.075
+        else:
+            return 0.001

@@ -4,6 +4,8 @@ from muzero.mcts import Node
 import gymnasium as gym
 import numpy as np
 import cv2
+import os
+import os.path as osp
 
 class Player(object):
     #dummy class since it is used in the MuZero MCTS algorithm
@@ -49,85 +51,12 @@ class ActionHistory(object):
     def to_play(self) -> Player:
         return Player()
     
-class DrivingEnvironment:
-    """
-    Wrapper around CarRacing-v3 (Discrete Mode).
-    Handles:
-    - reset()
-    - step(action_index)
-    - observation preprocessing
-    """
 
-    def __init__(self, obs_shape=(64, 64)):
-        # Use discrete action mode
-        self.env = gym.make("CarRacing-v3", render_mode="rgb_array", lap_complete_percent=0.95, domain_randomize=False, continuous=False)
-        self.obs_shape = obs_shape
-        
-        # video params
-        # self.record_video = record_video
-        # self.video_path = video_path
-        # self.video_writer = None
-        self.frame_size = (600, 400)  # CarRacing's native resolution
-
-    def reset(self):
-        obs, info = self.env.reset()
-
-        # init video writer if recording
-        # if self.record_video:
-        #     if self.video_writer is not None:  # close previous one
-        #         self.video_writer.release()
-
-            # self.video_writer = cv2.VideoWriter(
-            #     self.video_path,
-            #     cv2.VideoWriter_fourcc(*"mp4v"),
-            #     30,                      # FPS
-            #     self.frame_size        
-            # )
-        return self._preprocess(obs), info
-
-    def step(self, action_index):
-        obs, reward, terminated, truncated, info = self.env.step(action_index)
-        obs = self._preprocess(obs)
-
-        # capture frame if recording
-        # if self.record_video:
-        #     frame = self.env.render() # render returns 400, 600, 3
-        #     frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)  # convert to bgr for opencv
-        #     self.video_writer.write(frame_bgr)
-
-        done = terminated or truncated
-        return obs, reward, done, info
-
-    def close(self):
-        """Close env"""
-        # if self.record_video and self.video_writer is not None:
-        #     self.video_writer.release()
-        #     self.video_writer = None
-        #     print(f'video saved to {self.video_path}')
-        self.env.close()
-    
-    # for video saving
-    def render(self):
-        """returns rendered current frame of env"""
-        frame = self.env.render() # render returns 400, 600, 3
-        frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)  # convert to bgr for opencv
-        return frame_bgr
-    # for video saving
-    def get_frame_size(self):
-        # swap to return expected for opencv h,w,c
-        size = self.env.render().shape
-        return (size[1], size[0])
-
-
-    def _preprocess(self, obs):
-        # obs shape: (96, 96, 3)
-        obs = cv2.resize(obs, self.obs_shape, interpolation=cv2.INTER_AREA)
-        obs = obs.astype(np.float32) / 255.0
-        return obs
 
 
 class Game(object):
     """A single episode of interaction with the environment."""
+    # can we move video recording stuff to logger class?
 
     def __init__(self, config: MuZeroConfig, env, record_video=False, video_path=None):
         self.config = config
@@ -151,7 +80,8 @@ class Game(object):
         # recording params
         self.record_video = record_video
         if self.record_video:
-            #TODO check if video folder exists
+            # create video directory
+            os.makedirs(osp.dirname(video_path), exist_ok=True)
             self.frame_size = self.environment.get_frame_size()
             self.video_path = video_path
             self.video_writer = cv2.VideoWriter(

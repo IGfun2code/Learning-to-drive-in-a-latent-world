@@ -1,7 +1,8 @@
 from muzero.config import MuZeroConfig
 from muzero.network import MuZeroNetwork
 from muzero.mcts import Node, run_mcts, expand_node, add_exploration_noise, select_action, select_action_eval
-from muzero.game import Game, DrivingEnvironment
+from muzero.game import Game
+from muzero.envs import DrivingEnvironment, CartPoleEnvironment
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
@@ -11,10 +12,15 @@ import matplotlib.pyplot as plt
 from muzero.replay_buffer import ReplayBuffer
 from muzero.batch import make_training_batch
 
+from muzero.logger import Logger
+from datetime import datetime
+
+
 def play_game(config, network, env, record_video=False, video_path=None):
     """
     produces a single trajectory, storing game state information in returned Game Object
     """
+    network.eval()
     game = Game(config, env, record_video, video_path)
 
     while not game.terminal():
@@ -40,12 +46,16 @@ def evaluate_policy(config, network, env, num_episodes=3, record_video=False, vi
     similar to play_game, but selects actions greedily and returns eval ave return
     """
     returns = []
+    network.eval()
 
     original_noise = config.root_exploration_fraction
     config.root_exploration_fraction = 0.0
 
-    for _ in range(num_episodes):
-        game = Game(config, env, record_video, video_path)
+    for i in range(num_episodes):
+        if record_video and (i+1)%num_episodes == 0:  #only want 1 vid recorded per eval
+            game = Game(config, env, record_video, video_path)
+        else:
+            game = Game(config, env)
         while not game.terminal():
             root = Node(0.0)
             obs = game.make_image(-1)
@@ -57,6 +67,7 @@ def evaluate_policy(config, network, env, num_episodes=3, record_video=False, vi
             run_mcts(config, root, game.action_history(), network)
 
             action = select_action_eval(root)   # greedy selection
+            # print(f'debug: selected action: {action.index}')
             game.apply(action)
 
         episode_return = sum(game.rewards)
@@ -82,6 +93,7 @@ def muzero_update(config, network, replay_buffer, optimizer, device):
     if len(replay_buffer) == 0:
         return None  # nothing to train on yet
 
+    
     # 1. Sample batch from replay buffer
     batch = replay_buffer.sample_batch(config.batch_size)
 
@@ -103,51 +115,53 @@ def muzero_update(config, network, replay_buffer, optimizer, device):
     # Initial latent state from representation network
     # s: (B, latent_dim)
     s = network.representation_network(obs_batch)
+    output = network.initial_inference(obs_batch)
 
     values_pred = []
     policies_logits = []
     rewards_pred = []
-
-    # We will:
-    #  - predict value + policy from s_k at each step k = 0..K
-    #  - predict reward from dynamics at each step k = 0..K-1
-    for k in range(K + 1):
-        # Prediction from current state s_k
-        v_pred, p_logits = network.prediction_network(s)   # (B,), (B,A)
-        values_pred.append(v_pred.unsqueeze(1))            # -> (B,1)
-        policies_logits.append(p_logits.unsqueeze(1))      # -> (B,1,A)
-
-        # For k < K, use dynamics to get s_{k+1} and immediate reward r_k
-        if k < K:
-            a_k = action_batch[:, k]                       # (B,)
-            s, r_pred = network.dynamics_network(s, a_k)   # (B,latent), (B,)
-            rewards_pred.append(r_pred.unsqueeze(1))       # -> (B,1)
-
+    # latent_dyn_states = []
+    
+    values_pred.append(output.value.unsqueeze(1))
+    policies_logits.append(output.policy_logits.unsqueeze(1))
+    # rewards_pred.append(output.reward.unsqueeze(1))
+    # latent_dyn_states.append(output.hidden_state)  #debug
+    for i in range(K):
+        action = action_batch[:, i]
+        output = network.recurrent_inference(output.hidden_state, action)
+        values_pred.append(output.value.unsqueeze(1))
+        policies_logits.append(output.policy_logits.unsqueeze(1))
+        rewards_pred.append(output.reward.unsqueeze(1))
+        # latent_dyn_states.append(output.hidden_state)  #debug
+    
     # Stack along unroll dimension
     values_pred = torch.cat(values_pred, dim=1)            # (B, K+1)
     policies_logits = torch.cat(policies_logits, dim=1)    # (B, K+1, A)
     rewards_pred = torch.cat(rewards_pred, dim=1)          # (B, K)
-
     # 5. Compute losses
-
+    # Mask out steps where there is no policy target (sum==0) — e.g., beyond end of game
+    valid_mask = policy_batch.sum(dim=-1) > 0                           # (B,K+1) bool
+    valid_mask_rewards = valid_mask[:, 1:]     # aligns rewards_pred with reward_batch[:,1:]
+    
     # Value loss: MSE over (B, K+1)
-    value_loss = F.mse_loss(values_pred, value_batch)
+    value_loss = F.mse_loss(values_pred[valid_mask], value_batch[valid_mask])
 
     # Reward loss:
     #   We predicted K rewards: r_t ... r_{t+K-1}
     #   But reward_batch has K+1 "last_reward" targets.
     #   We align predictions with reward targets from index 1..K
-    reward_loss = F.mse_loss(rewards_pred, reward_batch[:, 1:])  # (B,K)
+    reward_loss = F.mse_loss(rewards_pred[valid_mask_rewards], reward_batch[:, 1:][valid_mask_rewards])  # (B,K)
+    # reward_loss = F.mse_loss(rewards_pred, reward_batch)  # (B,K)
+    
 
     # Policy loss: cross-entropy between visit-count distribution and predicted policy
     log_probs = F.log_softmax(policies_logits, dim=-1)           # (B,K+1,A)
     # Per-step CE: -sum_a pi_target * log pi_pred
     policy_loss_per_step = -(policy_batch * log_probs).sum(dim=-1)  # (B, K+1)
 
-    # Mask out steps where there is no policy target (sum==0) — e.g., beyond end of game
-    mask = policy_batch.sum(dim=-1) > 0                           # (B,K+1) bool
-    if mask.any():
-        policy_loss = policy_loss_per_step[mask].mean()
+    
+    if valid_mask.any():
+        policy_loss = policy_loss_per_step[valid_mask].mean()
     else:
         policy_loss = policy_loss_per_step.mean() * 0.0  # no-op if no valid policies
 
@@ -155,17 +169,29 @@ def muzero_update(config, network, replay_buffer, optimizer, device):
     total_loss = value_loss + reward_loss + policy_loss
 
     # 6. Backprop + optimization
+    network.train()
     optimizer.zero_grad()
     total_loss.backward()
     torch.nn.utils.clip_grad_norm_(network.parameters(), max_norm=5.0)
     optimizer.step()
     network.increment_training_steps()
 
+    ## debug logging
+    entropy_batch = - (policy_batch * (policy_batch+1e-8).log()).sum(dim=-1)   # (B, K+1)
+
+    
+    
     return {
         "total_loss": float(total_loss.item()),
         "value_loss": float(value_loss.item()),
         "reward_loss": float(reward_loss.item()),
         "policy_loss": float(policy_loss.item()),
+        "pred_reward_mean": float(rewards_pred.mean().item()),
+        "true_reward_mean": float(reward_batch.mean().item()),
+        "pred_value_mean": float(values_pred.mean().item()),
+        "true_value_mean": float(value_batch.mean().item()),
+        "policy_entropy": float(entropy_batch.mean().item())
+        # "latent_dyn_norm": float(torch.stack(latent_dyn_states).norm(dim=2).mean().item())
     }
     
 def plot_results(results):
@@ -189,14 +215,17 @@ def plot_results(results):
 def main():
     config = MuZeroConfig()
     #debug
-    # config.num_simulations = 5
+    config.num_simulations = 50
     # config.training_steps = 200
     # config.max_moves = 50
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
     # Environment and network
-    env = DrivingEnvironment()
+    # env = DrivingEnvironment()
+    env = CartPoleEnvironment()
+    
+    config.action_space_size = env.env.action_space.n
     network = MuZeroNetwork(config, device=device)
 
     # Optimizer + LR scheduler
@@ -213,11 +242,13 @@ def main():
     # Replay buffer
     replay_buffer = ReplayBuffer(config)
     
-    # logging TODO make separate class
-    logging = {
-        "loss": [],
-        "eval ave return": []
-    }
+    # logging 
+    now = datetime.now()
+    timestamp_str = now.strftime("%Y_%m_%d_%H_%M_%S")
+    log_dir = f"run_{timestamp_str}"
+    print(f'saving data to {log_dir}')
+    logger = Logger(save_dir=f"{log_dir}/logs")
+
 
     # Training loop:
     #  We use network.training_steps() as our global counter.
@@ -227,6 +258,7 @@ def main():
         # 1. Self-play: generate one new episode
         game = play_game(config, network, env)
         replay_buffer.add_episode(game)
+        logger.log("self-play return", step, sum(game.rewards))
 
         # 2. Training update (one gradient step)
         stats = muzero_update(config, network, replay_buffer, optimizer, device)
@@ -245,16 +277,17 @@ def main():
                 f"reward={stats['reward_loss']:.4f} "
                 f"policy={stats['policy_loss']:.4f}"
             )
-            logging["loss"].append((step, stats["total_loss"]))
+            for k, v in stats.items():
+                logger.log(k, step, v)
         # 5. run periodic evals
         if step % config.eval_freq == 0:
             if step % config.video_freq == 0:
-                eval_return = evaluate_policy(config, network, env, record_video=True, video_path=f"videos/step_{int(step)}.mp4")
+                eval_return = evaluate_policy(config, network, env, record_video=True, video_path=f"{log_dir}/videos/step_{int(step)}.mp4")
             else:
                 eval_return = evaluate_policy(config, network, env)
                  
            
-            logging["eval ave return"].append((step, eval_return))
+            logger.log("eval_ave_return", step, eval_return)
             print(f"eval ave return={eval_return:.4f}")
 
         # 6. Checkpointing
@@ -272,7 +305,8 @@ def main():
 
     print("Training complete.")
     env.close()
-    plot_results(logging)
+    logger.flush()
+    
 
 
 if __name__ == "__main__":

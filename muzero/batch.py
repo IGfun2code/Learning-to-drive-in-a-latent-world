@@ -30,6 +30,7 @@ def make_training_batch(config, batch):
     policy_batch  = torch.zeros((B, K+1, A), dtype=torch.float32)
 
     for i, (game, pos) in enumerate(batch):
+        # print(f'debug: r: {len(game.rewards)} | o: {len(game.observations)} | a: {len(game.history)} | pi: {len(game.child_visits)} | v: {len(game.root_values)}')
 
         # ----------------------------
         # 1. Extract initial observation

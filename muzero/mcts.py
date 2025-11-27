@@ -153,6 +153,7 @@ def select_action_eval(root):
     """use greedy strategy when selecting action during eval"""
     visit_counts = [(child.visit_count, action) for action, child in root.children.items()]
     _, best_action = max(visit_counts, key=lambda x: x[0])
+    # print(f'debug: {[(x,y.index) for (x,y) in visit_counts]}')
     return best_action
 
 # Core Monte Carlo Tree Search algorithm.
